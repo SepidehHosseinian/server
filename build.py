@@ -345,10 +345,11 @@ def cmake_repoagent_extra_args():
     return args
 
 
-def core_cmake_args(components, backends, install_dir):
+def core_cmake_args(components, backends, cmake_dir, install_dir):
     cargs = [
         cmake_core_arg('CMAKE_BUILD_TYPE', None, FLAGS.build_type),
         cmake_core_arg('CMAKE_INSTALL_PREFIX', 'PATH', install_dir),
+        cmake_core_arg('TRITON_VERSION', 'STRING', FLAGS.version),
         cmake_core_arg('TRITON_COMMON_REPO_TAG', 'STRING',
                        components['common']),
         cmake_core_arg('TRITON_CORE_REPO_TAG', 'STRING', components['core']),
@@ -422,7 +423,7 @@ def core_cmake_args(components, backends, install_dir):
             cargs.append(cmake_core_arg(evar[len('TRITONBUILD_'):], None, eval))
 
     cargs += cmake_core_extra_args()
-    cargs.append(FLAGS.cmake_dir)
+    cargs.append(cmake_dir)
     return cargs
 
 
@@ -1653,7 +1654,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-core-build',
                         action="store_true",
                         required=False,
-                        help='Do not build Triton core library.')
+                        help='Do not build Triton core sharead library or executable.')
     parser.add_argument(
         '--backend',
         action='append',
@@ -1924,16 +1925,33 @@ if __name__ == '__main__':
     for c in components:
         log('component "{}" at tag/branch "{}"'.format(c, components[c]))
 
-    # Build the core server. For now the core is contained in this
-    # repo so we just build in place
+    # Build the core shared library and the  server executable.
     if not FLAGS.no_core_build:
+        # core shared library
+        repo_build_dir = os.path.join(FLAGS.build_dir, 'core', 'build')
+        repo_install_dir = os.path.join(FLAGS.build_dir, 'core', 'install')
+
+        mkdir(FLAGS.build_dir)
+        gitclone(FLAGS.build_dir, 'core', components['core'], 'core',
+                 FLAGS.github_organization)
+        mkdir(repo_build_dir)
+        cmake(repo_build_dir,
+              core_cmake_args(components, backends, '..', repo_install_dir))
+        makeinstall(repo_build_dir)
+
+        core_install_dir = os.path.join(FLAGS.install_dir, 'lib')
+        rmdir(core_install_dir)
+        mkdir(core_install_dir)
+        cpdir(os.path.join(repo_install_dir, 'lib'), core_install_dir)
+
+        # tritonserver executable
         repo_build_dir = os.path.join(FLAGS.build_dir, 'tritonserver', 'build')
         repo_install_dir = os.path.join(FLAGS.build_dir, 'tritonserver',
                                         'install')
 
         mkdir(repo_build_dir)
         cmake(repo_build_dir,
-              core_cmake_args(components, backends, repo_install_dir))
+              core_cmake_args(components, backends, FLAGS.cmake_dir, repo_install_dir))
         makeinstall(repo_build_dir, target='server')
 
         core_install_dir = FLAGS.install_dir
